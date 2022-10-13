@@ -1,0 +1,261 @@
+---
+- name: Provision Ripple node on a CentOS server
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+  # - name: Set fact for RedHat family
+  #   set_fact:
+  #     web_server_name: httpd
+  #     web_log_dir: httpd
+  #     apache_user: apache
+  #   when: ansible_os_family == "RedHat"
+  #   tags: 
+  #     - always
+
+  - name: change SSH port to different one
+    ansible.builtin.lineinfile:
+      path: /etc/ssh/sshd_config
+      line: Port "{{ custom_ssh_port }}"
+      state: present
+    notify: restart sshd
+    when: custom_ssh_port is defined and custom_ssh_port != None
+
+  - name: install firewalld
+    yum:
+      state: present
+      name:
+         - firewalld
+      update_cache: yes
+    # ignore_errors: yes
+
+  - name: open ports for RPC calls
+    ansible.posix.firewalld: port="{{ item }}" permanent=true state=enabled
+    with_items:
+    - '5005/tcp'
+    - '6006/tcp'
+    - '51235/tcp'
+    notify: restart firewalld
+
+  - name: flush handlers # This is specially required to restart sshd service if the playbook gets interrupted at the middle
+    ansible.builtin.meta: flush_handlers
+
+  # - debug: var=volume_uuid
+
+  # - name: mount filesystem on /data
+  #   ansible.posix.mount:
+  #     path: /data/{{ org_alias }}
+  #     src: UUID={{ volume_uuid }}
+  #     fstype: ext4
+  #     passno: 2
+  #     state: mounted
+  #     backup: yes
+  #   when:
+  #   - volume_uuid is defined and volume_uuid != ""
+  #   - volume_uuid != None
+
+  - name: upgrade all packages
+    dnf: name=* state=latest
+    # tags:
+    #   - never
+
+  - name: Change the hostname
+    ansible.builtin.hostname:
+      name: "{{ hostname }}"
+      use: systemd
+
+  - name: Apply correct timezone
+    community.general.timezone:
+      name: "{{ time_zone }}"
+
+  - name: copy ripple.repo
+    template:
+      src: files/ripple.repo
+      dest: /etc/yum.repos.d/ripple.repo
+      # backup: yes
+      force: yes
+      mode: 0644
+    tags:
+      - copy-file
+
+  - name: Install generic utility packages
+    ansible.builtin.yum:
+    # dnf:
+      state: present
+      update_cache: yes
+      name:
+         - git
+         - bash-completion
+         - wget
+         - telnet
+         - zip
+         - unzip
+         - bzip2
+         - tar
+         - curl 
+         - net-tools
+    tags:
+      - install-generic-packages
+
+  - name: Install utility related packages only for CentOS
+    dnf:
+      state: present
+      name:
+         - dnf-utils
+         - util-linux-user
+         - policycoreutils-python-utils          # For Selinux troubleshooting
+    when: ansible_distribution=="CentOS" and ansible_distribution_major_version=="8"
+
+  - name: Install service related packages
+    ansible.builtin.yum:
+    # dnf:
+      state: present
+      name:
+         - acpid
+         - mailx
+         - sysstat
+         - rsyslog
+         - audit
+
+  - name: Install ripple node daemon
+    ansible.builtin.yum:
+    # dnf:
+      state: present
+      name:
+         - rippled
+
+  - name: make directories
+    ansible.builtin.file:
+      path: "{{ item.path }}"
+      state: "{{ item.state }}"
+      mode: "{{ item.mode }}"
+      owner: "{{ item.owner }}"
+      group: "{{ item.group }}"
+    with_items:
+      - { path: "/blockchaindata/rippled", state: "directory", mode: "0755", owner: "rippled", group: "rippled" }
+    tags:
+      - mkdir
+    
+  - name: recursively change ownership of /blockchaindata/rippled
+    ansible.builtin.file:
+      path: /blockchaindata/rippled
+      state: directory
+      recurse: yes
+      owner: rippled
+      group: rippled
+
+  - name: Update config to allow RPC remotely
+    ansible.builtin.replace: 
+      path: "/etc/opt/ripple/rippled.cfg"
+      regexp: "{{ item.find_value }}"
+      replace: "{{ item.replace_value}}"
+    with_items:
+      - { find_value: '^^ip = 127.0.0.1',
+        replace_value: 'ip = 0.0.0.0'}
+      - { find_value: '^path=/var/lib/rippled/db/nudb',
+        replace_value: 'path=/blockchaindata/rippled/db/nudb'}
+      - { find_value: '^/var/lib/rippled/db',
+        replace_value: '/blockchaindata/rippled/db'}        
+        
+    notify: "restart rippled"
+    
+  - name: start rippled daemon
+    service: name=rippled state=started enabled=yes
+    when: ansible_os_family == "RedHat"
+
+  - name: Add ops group
+    ansible.builtin.group: name=ops gid=50000 state=present
+
+  - name: Add ops user
+    ansible.builtin.user: name=ops uid=50000 createhome=yes shell=/bin/bash group=ops groups=ops append=yes state=present
+    # user: name=ops uid=50000 createhome=yes shell=/bin/bash group=ops groups=ops append=yes state=present
+
+  - name: Check if /etc/sudoers.d/ops exists
+    stat:
+     path: /etc/sudoers.d/ops
+    register: ops_status
+
+  # - debug: var=ops_status
+
+  - name: Create ops file if not present
+    file:
+      path: "/etc/sudoers.d/ops"
+      state: touch
+    when: ops_status.stat.exists ==  false
+
+  - name: Add ops user to sudoers
+    lineinfile: "path=/etc/sudoers.d/ops state=present line='ops ALL=(ALL) NOPASSWD: ALL'"
+
+  - name: Check if ".vimrc" file exists
+    stat:
+    #  path: "~/.vimrc"
+     path: "{{ ansible_env.HOME }}/.vimrc"
+    register: vimrc_status
+
+  # - debug: var=vimrc_status
+
+  - name: Create vimrc file if not present
+    file:
+      path: "{{ ansible_env.HOME }}/.vimrc"
+      state: touch
+      # ansible.builtin.debug:
+      # msg: "{{ vimrc_status.stat.exists }}"
+    when: vimrc_status.stat.exists ==  false
+
+  - name: change vim parameters
+    ansible.builtin.lineinfile: path='{{ ansible_env.HOME }}/.vimrc' state=present line="{{ item }}" create=yes
+    with_items:
+    - 'colorscheme elflord'
+    - 'set paste'
+    - syntax on
+    - set wildmenu
+    - set incsearch
+    - set hlsearch
+    - set number
+    - set title
+
+  - name: change bash prompt and export vim
+    ansible.builtin.lineinfile: path='{{ ansible_env.HOME }}/.bashrc' state=present line="{{ item }}" create=yes backup=yes
+    with_items:
+    - 'export PS1="\[\033[01;36m\]\u@\[\033[01;32m\]$(hostname -f | cut -f 1-2 -d .):\[\033[33;1m\]\W\[\033[01;31m\]\[\e[01;33m\] \[\e[00m\]\\$ "'
+    - 'export EDITOR=vim'
+    tags: edit-bashrc
+
+  - name: install chrony
+    yum: name=chrony state=present
+  
+  - name: start chronyd daemon
+    service: name=chronyd state=started enabled=yes
+    # when: ansible_os_family == "RedHat"
+
+  - name: flush handlers # This is specially required to restart postgresql if pg_hba.conf is updated
+    meta: flush_handlers
+
+  - name: start services
+    service: name={{item}} state=started enabled=yes
+    with_items:
+    - acpid.service
+    - firewalld.service
+    - rsyslog.service
+    - auditd.service
+
+  # - name: cron job - example
+  #   ansible.builtin.cron:
+  #     name: "{{ web_servername }} - example daily"
+  #     minute: "05"
+  #     hour: "22"
+  #     day: "*"
+  #     job: "/usr/bin/name_of_the_command"
+  #     state: present
+  #   tags:
+  #     - cron
+
+  handlers:
+  - name: restart rippled
+    ansible.builtin.service: name=rippled state=restarted
+
+  - name: restart firewalld
+    ansible.builtin.service: name=firewalld state=restarted
+
+  - name: restart sshd
+    ansible.builtin.service: name=sshd.service state=restarted

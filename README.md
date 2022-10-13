@@ -30,4 +30,4 @@ https://www.wolfram.com/language/12/blockchain/
 
 Prototype Notebook "XRPL_Prototype_Mock-up_2022_10.nb" is limited exploratory mock-up in a Wolfram Language Notebook. GitHub does not render Wolfram Notebooks, so we have also included a cloud version of the notebook here:
 
-https://www.wolframcloud.com/obj/c6a1933a-0c8a-4273-bcf1-34897bd648a4
+https://www.wolframcloud.com/obj/6b5a95a2-8128-4471-991d-215c38e574cd

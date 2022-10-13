@@ -1,7 +1,7 @@
 # XRPL-Wave-4-Proposal
-Wolfram XRP Ledger Integration Proposal
+<h1> Wolfram XRP Ledger Integration Proposal </h1>
 
-Introduction 
+<h2> Introduction</h2>
 
 The Wolfram Language has built-in capabilities for interacting with blockchains created through Wolfram Blockchain Labs Blockchain Integration Service (BIS). 
 
@@ -25,3 +25,8 @@ Tezos https://reference.wolfram.com/language/guide/Blockchain-Tezos.html
 
 Basic use case examples are here:
 https://www.wolfram.com/language/12/blockchain/
+
+<h2> Prototype </h2>
+
+Prototype Notebook "XRPL_Prototype_Mock-up_2022_10.nb" is a Wolfram Language Notebook, GitHub does not render Wolfram Notebooks.
+So, we have also included a cloud version of the notebook here: 

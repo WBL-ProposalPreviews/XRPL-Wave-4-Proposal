@@ -24,7 +24,7 @@ Ethereum https://reference.wolfram.com/language/guide/Blockchain-Ethereum.html
 
 Tezos https://reference.wolfram.com/language/guide/Blockchain-Tezos.html
 
-Basic use case examples are here: 
+Basic use case examples are here:
 https://www.wolfram.com/language/12/blockchain/
 
 <h2> Prototype </h2>
